@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    * {
+        box-sizing: border-box;
+    }
+
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+    }
+}
+
+@layer components {
+    .voice-widget-container {
+        @apply fixed z-50;
+    }
+
+    .voice-widget-button {
+        @apply relative flex items-center justify-center w-14 h-14 bg-primary-600 text-white rounded-full shadow-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 transition-all duration-200 cursor-pointer;
+    }
+
+    .voice-widget-button:disabled {
+        @apply opacity-50 cursor-not-allowed;
+    }
+
+    .voice-widget-panel {
+        @apply absolute bottom-16 right-0 w-80 bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden;
+    }
+
+    .voice-widget-header {
+        @apply flex items-center justify-between p-4 bg-primary-600 text-white;
+    }
+
+    .voice-widget-content {
+        @apply p-4;
+    }
+
+    .voice-widget-footer {
+        @apply p-4 bg-gray-50 border-t border-gray-200;
+    }
+
+    .voice-widget-input {
+        @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    }
+
+    .voice-widget-button-secondary {
+        @apply px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors duration-200;
+    }
+
+    .voice-widget-button-primary {
+        @apply px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-colors duration-200;
+    }
+
+    .voice-widget-status-indicator {
+        @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
+    }
+
+    .voice-widget-status-active {
+        @apply bg-green-100 text-green-800;
+    }
+
+    .voice-widget-status-inactive {
+        @apply bg-gray-100 text-gray-800;
+    }
+
+    .voice-widget-status-error {
+        @apply bg-red-100 text-red-800;
+    }
+
+    .voice-widget-status-processing {
+        @apply bg-yellow-100 text-yellow-800;
+    }
+}
+
+@layer utilities {
+    .voice-widget-animate-pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    .voice-widget-animate-bounce {
+        animation: bounce 1s infinite;
+    }
+
+    .voice-widget-animate-spin {
+        animation: spin 1s linear infinite;
+    }
+
+    .voice-widget-animate-ping {
+        animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 640px) {
+    .voice-widget-panel {
+        @apply w-72 right-0;
+    }
+}
+
+@media (max-width: 480px) {
+    .voice-widget-panel {
+        @apply w-64 right-0;
+    }
+
+    .voice-widget-button {
+        @apply w-12 h-12;
+    }
+}
