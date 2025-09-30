@@ -3,6 +3,108 @@ import WebSocket from 'ws';
 import { logger } from '../utils/logger';
 import { SpeechmaticsConfig, TranscriptData, AudioChunk } from '../types';
 
+// Speechmatics WebSocket message types based on official documentation
+interface StartRecognitionMessage {
+    message: 'StartRecognition';
+    audio_format: {
+        type: 'raw' | 'file';
+        encoding?: 'pcm_f32le' | 'pcm_s16le' | 'mulaw';
+        sample_rate?: number;
+    };
+    transcription_config: {
+        language: string;
+        enable_partials?: boolean;
+        punctuation_overrides?: {
+            permitted_marks?: string[];
+            sensitivity?: number;
+        };
+        max_delay?: number;
+        max_delay_mode?: 'flexible' | 'fixed';
+        operating_point?: 'standard' | 'enhanced';
+        diarization?: 'none' | 'speaker';
+        speaker_diarization_config?: {
+            max_speakers?: number;
+            prefer_current_speaker?: boolean;
+            speaker_sensitivity?: number;
+        };
+    };
+}
+
+interface EndOfStreamMessage {
+    message: 'EndOfStream';
+    last_seq_no: number;
+}
+
+interface SetRecognitionConfigMessage {
+    message: 'SetRecognitionConfig';
+    max_delay?: number;
+    max_delay_mode?: 'flexible' | 'fixed';
+    enable_partials?: boolean;
+}
+
+// Response message types
+interface RecognitionStartedMessage {
+    message: 'RecognitionStarted';
+    id: string;
+}
+
+interface AudioAddedMessage {
+    message: 'AudioAdded';
+    seq_no: number;
+}
+
+interface AddTranscriptMessage {
+    message: 'AddTranscript';
+    transcript: {
+        alternatives: Array<{
+            content: string;
+            confidence: number;
+            language: string;
+            start_time: number;
+            end_time: number;
+        }>;
+        is_partial: boolean;
+        start_time: number;
+        end_time: number;
+    };
+}
+
+interface AddPartialTranscriptMessage {
+    message: 'AddPartialTranscript';
+    transcript: {
+        alternatives: Array<{
+            content: string;
+            confidence: number;
+            language: string;
+            start_time: number;
+            end_time: number;
+        }>;
+        is_partial: boolean;
+        start_time: number;
+        end_time: number;
+    };
+}
+
+interface EndOfTranscriptMessage {
+    message: 'EndOfTranscript';
+}
+
+interface ErrorMessage {
+    message: 'Error';
+    type: string;
+    reason: string;
+    code?: number;
+    seq_no?: number;
+}
+
+interface InfoMessage {
+    message: 'Info';
+    type: string;
+    reason: string;
+    code?: number;
+    seq_no?: number;
+}
+
 export class SpeechmaticsService extends EventEmitter {
     private config: SpeechmaticsConfig;
     private sessionId: string;
@@ -14,6 +116,9 @@ export class SpeechmaticsService extends EventEmitter {
     private reconnectDelay = 1000;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private lastHeartbeat = 0;
+    private audioSequenceNumber = 0;
+    private recognitionId: string | null = null;
+    private isRecognitionStarted = false;
 
     constructor(config: SpeechmaticsConfig, sessionId: string) {
         super();
@@ -37,12 +142,14 @@ export class SpeechmaticsService extends EventEmitter {
                 throw new Error('Speechmatics API key not configured');
             }
 
-            const wsUrl = `wss://eu2.rt.speechmatics.com/v2/${this.sessionId}`;
+            // Use the correct WebSocket URL format from documentation
+            const wsUrl = 'wss://eu2.rt.speechmatics.com/v2/';
             
-            // Create WebSocket connection
+            // Create WebSocket connection with proper headers
             this.ws = new WebSocket(wsUrl, {
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
+                    'User-Agent': 'VoiceChatWidget/1.0.0',
                 },
             });
 
@@ -117,19 +224,22 @@ export class SpeechmaticsService extends EventEmitter {
      * Send audio data to Speechmatics
      */
     sendAudio(audioChunk: AudioChunk): void {
-        if (!this.isConnected || !this.ws) {
-            logger.warn('Cannot send audio: not connected to Speechmatics');
+        if (!this.isConnected || !this.ws || !this.isRecognitionStarted) {
+            logger.warn('Cannot send audio: not connected to Speechmatics or recognition not started');
             return;
         }
 
         try {
+            // Increment sequence number for this audio chunk
+            this.audioSequenceNumber++;
+            
             // Convert audio data to the expected format
             const audioData = this.convertAudioData(audioChunk);
             
-            // Send as binary data
+            // Send as binary data (AddAudio message)
             this.ws.send(audioData);
             
-            logger.debug(`Sent audio chunk to Speechmatics: ${audioData.length} bytes`);
+            logger.debug(`Sent audio chunk to Speechmatics: ${audioData.length} bytes, seq: ${this.audioSequenceNumber}`);
         } catch (error) {
             logger.error('Error sending audio to Speechmatics:', error);
             this.emit('error', error);
@@ -140,18 +250,19 @@ export class SpeechmaticsService extends EventEmitter {
      * Send end of stream signal
      */
     endStream(): void {
-        if (!this.isConnected || !this.ws) {
+        if (!this.isConnected || !this.ws || !this.isRecognitionStarted) {
             return;
         }
 
         try {
-            // Send end of stream message
-            const endMessage = {
-                type: 'EndOfStream',
+            // Send end of stream message with sequence number
+            const endMessage: EndOfStreamMessage = {
+                message: 'EndOfStream',
+                last_seq_no: this.audioSequenceNumber,
             };
 
             this.ws.send(JSON.stringify(endMessage));
-            logger.info('Sent end of stream to Speechmatics');
+            logger.info('Sent EndOfStream to Speechmatics', { last_seq_no: this.audioSequenceNumber });
         } catch (error) {
             logger.error('Error sending end of stream:', error);
             this.emit('error', error);
@@ -208,32 +319,37 @@ export class SpeechmaticsService extends EventEmitter {
      */
     private handleMessage(message: any): void {
         try {
-            switch (message.type) {
+            switch (message.message) {
                 case 'RecognitionStarted':
-                    logger.debug('Speechmatics recognition started');
-                    this.emit('recognitionStarted', message);
+                    this.handleRecognitionStarted(message as RecognitionStartedMessage);
+                    break;
+
+                case 'AudioAdded':
+                    this.handleAudioAdded(message as AudioAddedMessage);
                     break;
 
                 case 'AddTranscript':
-                    this.handleTranscript(message);
+                    this.handleTranscript(message as AddTranscriptMessage);
                     break;
 
                 case 'AddPartialTranscript':
-                    this.handlePartialTranscript(message);
+                    this.handlePartialTranscript(message as AddPartialTranscriptMessage);
                     break;
 
                 case 'EndOfTranscript':
-                    logger.debug('Speechmatics end of transcript');
-                    this.emit('endOfTranscript', message);
+                    this.handleEndOfTranscript(message as EndOfTranscriptMessage);
                     break;
 
                 case 'Error':
-                    logger.error('Speechmatics error:', message);
-                    this.emit('error', new Error(message.error));
+                    this.handleError(message as ErrorMessage);
+                    break;
+
+                case 'Info':
+                    this.handleInfo(message as InfoMessage);
                     break;
 
                 default:
-                    logger.debug('Unknown Speechmatics message type:', message.type);
+                    logger.debug('Unknown Speechmatics message type:', message.message);
             }
         } catch (error) {
             logger.error('Error handling Speechmatics message:', error);
@@ -241,14 +357,34 @@ export class SpeechmaticsService extends EventEmitter {
     }
 
     /**
+     * Handle recognition started
+     */
+    private handleRecognitionStarted(message: RecognitionStartedMessage): void {
+        this.recognitionId = message.id;
+        this.isRecognitionStarted = true;
+        logger.info('Speechmatics recognition started', { id: message.id });
+        this.emit('recognitionStarted', message);
+    }
+
+    /**
+     * Handle audio added confirmation
+     */
+    private handleAudioAdded(message: AudioAddedMessage): void {
+        logger.debug('Audio chunk confirmed by Speechmatics', { seq_no: message.seq_no });
+        this.emit('audioAdded', message);
+    }
+
+    /**
      * Handle final transcript
      */
-    private handleTranscript(message: any): void {
+    private handleTranscript(message: AddTranscriptMessage): void {
         const transcriptData: TranscriptData = {
-            transcript: message.alternatives[0]?.content || '',
-            confidence: message.alternatives[0]?.confidence || 0,
+            transcript: message.transcript.alternatives[0]?.content || '',
+            confidence: message.transcript.alternatives[0]?.confidence || 0,
             isPartial: false,
             timestamp: Date.now(),
+            startTime: message.transcript.start_time,
+            endTime: message.transcript.end_time,
         };
 
         logger.debug(`Final transcript: ${transcriptData.transcript}`);
@@ -258,16 +394,45 @@ export class SpeechmaticsService extends EventEmitter {
     /**
      * Handle partial transcript
      */
-    private handlePartialTranscript(message: any): void {
+    private handlePartialTranscript(message: AddPartialTranscriptMessage): void {
         const transcriptData: TranscriptData = {
-            transcript: message.alternatives[0]?.content || '',
-            confidence: message.alternatives[0]?.confidence || 0,
+            transcript: message.transcript.alternatives[0]?.content || '',
+            confidence: message.transcript.alternatives[0]?.confidence || 0,
             isPartial: true,
             timestamp: Date.now(),
+            startTime: message.transcript.start_time,
+            endTime: message.transcript.end_time,
         };
 
         logger.debug(`Partial transcript: ${transcriptData.transcript}`);
         this.emit('partialTranscript', transcriptData);
+    }
+
+    /**
+     * Handle end of transcript
+     */
+    private handleEndOfTranscript(message: EndOfTranscriptMessage): void {
+        logger.info('Speechmatics end of transcript');
+        this.emit('endOfTranscript', message);
+    }
+
+    /**
+     * Handle error messages
+     */
+    private handleError(message: ErrorMessage): void {
+        logger.error('Speechmatics error:', message);
+        const error = new Error(`Speechmatics Error [${message.type}]: ${message.reason}`);
+        (error as any).code = message.code;
+        (error as any).type = message.type;
+        this.emit('error', error);
+    }
+
+    /**
+     * Handle info messages
+     */
+    private handleInfo(message: InfoMessage): void {
+        logger.info('Speechmatics info:', message);
+        this.emit('info', message);
     }
 
     /**
@@ -278,24 +443,29 @@ export class SpeechmaticsService extends EventEmitter {
             throw new Error('WebSocket not connected');
         }
 
-        const config = {
-            type: 'StartRecognition',
+        const config: StartRecognitionMessage = {
+            message: 'StartRecognition',
             audio_format: {
                 type: 'raw',
-                encoding: this.config.encoding,
+                encoding: this.config.encoding as 'pcm_f32le' | 'pcm_s16le' | 'mulaw',
                 sample_rate: this.config.sampleRate,
             },
             transcription_config: {
                 language: this.config.language,
                 enable_partials: this.config.enablePartials,
                 punctuation_overrides: {
-                    permitted_marks: this.config.punctuationPermitted ? ['.', '?', '!', ',', ';', ':'] : [],
+                    permitted_marks: this.config.punctuationPermitted ? ['.', '?', '!', ',', ';', ':'] : ['all'],
+                    sensitivity: 0.5,
                 },
+                max_delay: 4,
+                max_delay_mode: 'flexible',
+                operating_point: 'standard',
+                diarization: 'none',
             },
         };
 
         this.ws.send(JSON.stringify(config));
-        logger.debug('Sent configuration to Speechmatics');
+        logger.debug('Sent StartRecognition configuration to Speechmatics', config);
     }
 
     /**

@@ -1,9 +1,10 @@
 export interface AudioChunk {
-    data: ArrayBuffer;
+    data: Buffer;
     timestamp: number;
-    sampleRate: number;
-    channels: number;
-    duration: number;
+    sequence: number;
+    sampleRate?: number;
+    channels?: number;
+    duration?: number;
 }
 
 export interface Session {
@@ -59,6 +60,8 @@ export interface TranscriptData {
     confidence: number;
     isPartial: boolean;
     timestamp: number;
+    startTime?: number;
+    endTime?: number;
 }
 
 export interface WebRTCSignal {

@@ -220,7 +220,7 @@ class VoiceChatServer {
             });
 
             // Handle WebRTC signaling
-            socket.on('webrtc-signal', (data) => {
+            socket.on('webrtc-signal', async (data) => {
                 try {
                     const { sessionId, signal } = data;
                     
@@ -229,13 +229,65 @@ class VoiceChatServer {
                         return;
                     }
 
-                    // Handle WebRTC signaling logic here
-                    // This would typically involve peer-to-peer connection setup
-                    socket.emit('webrtc-signal', { sessionId, signal });
+                    // Handle WebRTC signaling through the service
+                    await this.webrtcService.handleSignal(sessionId, signal);
+                    
+                    // Forward the signal to other clients if needed
+                    socket.to(sessionId).emit('webrtc-signal', { sessionId, signal });
 
                 } catch (error) {
                     logger.error('Error handling WebRTC signal:', error);
                     socket.emit('error', { message: 'Failed to handle WebRTC signal' });
+                }
+            });
+
+            // Handle WebRTC connection creation
+            socket.on('create-webrtc-connection', async (data) => {
+                try {
+                    const { sessionId } = data;
+                    
+                    if (!sessionId) {
+                        socket.emit('error', { message: 'Missing sessionId' });
+                        return;
+                    }
+
+                    // Create WebRTC connection
+                    const peerConnection = await this.webrtcService.createConnection(sessionId);
+                    
+                    // Set up event handlers for this connection
+                    this.webrtcService.on('iceCandidate', ({ sessionId: connSessionId, candidate }) => {
+                        if (connSessionId === sessionId) {
+                            socket.emit('ice-candidate', { sessionId, candidate });
+                        }
+                    });
+
+                    this.webrtcService.on('connectionEstablished', ({ sessionId: connSessionId }) => {
+                        if (connSessionId === sessionId) {
+                            socket.emit('webrtc-connected', { sessionId });
+                        }
+                    });
+
+                    this.webrtcService.on('dataChannelMessage', ({ sessionId: connSessionId, data }) => {
+                        if (connSessionId === sessionId) {
+                            // Handle incoming audio data from WebRTC
+                            const speechmaticsService = this.speechmaticsServices.get(sessionId);
+                            if (speechmaticsService) {
+                                // Convert data to AudioChunk format
+                                const audioChunk: AudioChunk = {
+                                    data: Buffer.from(data),
+                                    timestamp: Date.now(),
+                                    sequence: 0, // This should be managed properly
+                                };
+                                speechmaticsService.sendAudio(audioChunk);
+                            }
+                        }
+                    });
+
+                    socket.emit('webrtc-connection-created', { sessionId });
+
+                } catch (error) {
+                    logger.error('Error creating WebRTC connection:', error);
+                    socket.emit('error', { message: 'Failed to create WebRTC connection' });
                 }
             });
 
@@ -255,6 +307,9 @@ class VoiceChatServer {
                             speechmaticsService.disconnect();
                             this.speechmaticsServices.delete(session.id);
                         }
+
+                        // Clean up WebRTC connection
+                        await this.webrtcService.closeConnection(session.id);
                     } catch (error) {
                         logger.error('Error cleaning up session on disconnect:', error);
                     }
@@ -314,6 +369,13 @@ class VoiceChatServer {
             service.disconnect();
         });
         this.speechmaticsServices.clear();
+
+        // Close all WebRTC connections
+        this.webrtcService.closeAllConnections().then(() => {
+            logger.info('All WebRTC connections closed');
+        }).catch((error) => {
+            logger.error('Error closing WebRTC connections:', error);
+        });
 
         // Close Socket.IO server
         this.io.close(() => {

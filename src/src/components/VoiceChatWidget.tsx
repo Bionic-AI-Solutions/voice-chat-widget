@@ -8,6 +8,8 @@ import { VoiceControls } from './VoiceControls';
 import { TranscriptDisplay } from './TranscriptDisplay';
 import { StatusIndicator } from './StatusIndicator';
 import { ErrorDisplay } from './ErrorDisplay';
+import { WebRTCService, WebRTCConfig } from '../services/WebRTCService';
+import { SpeechmaticsService, SpeechmaticsConfig } from '../services/SpeechmaticsService';
 import '../styles/index.css';
 
 const SUPPORTED_LANGUAGES: LanguageOption[] = [
@@ -56,6 +58,8 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
     const widgetRef = useRef<HTMLDivElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const mediaStreamRef = useRef<MediaStream | null>(null);
+    const webRTCServiceRef = useRef<WebRTCService | null>(null);
+    const speechmaticsServiceRef = useRef<SpeechmaticsService | null>(null);
 
     // Initialize widget
     useEffect(() => {
@@ -99,6 +103,19 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
         } catch (error) {
             log('warn', 'Failed to initialize audio context', error);
         }
+
+        // Cleanup function
+        return () => {
+            if (webRTCServiceRef.current) {
+                webRTCServiceRef.current.disconnect();
+            }
+            if (speechmaticsServiceRef.current) {
+                speechmaticsServiceRef.current.disconnect();
+            }
+            if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach(track => track.stop());
+            }
+        };
     }, [apiKey, officerEmail, appName, language, position, theme, debug, logLevel, onError]);
 
     // Handle widget toggle
@@ -127,16 +144,108 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
                 error: null,
             }));
 
-            // Request microphone access
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
+            // Initialize WebRTC service
+            const webRTCConfig: WebRTCConfig = {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                ],
+                audioConstraints: {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 44100,
+                        channelCount: 1,
+                    },
                 },
+                sampleRate: 44100,
+                channels: 1,
+            };
+
+            const webRTCService = new WebRTCService(webRTCConfig);
+            webRTCServiceRef.current = webRTCService;
+
+            // Set up WebRTC event handlers
+            webRTCService.on('connected', () => {
+                if (debug) {
+                    log(logLevel, 'WebRTC connected');
+                }
             });
 
-            mediaStreamRef.current = stream;
+            webRTCService.on('audioChunk', (audioChunk) => {
+                // Send audio to Speechmatics
+                if (speechmaticsServiceRef.current) {
+                    speechmaticsServiceRef.current.sendAudio(audioChunk.data);
+                }
+            });
+
+            webRTCService.on('error', (error) => {
+                const voiceError = createError(
+                    'WEBRTC_ERROR',
+                    'WebRTC connection error',
+                    { originalError: error }
+                );
+                setWidgetState(prev => ({ ...prev, error: voiceError }));
+                onError?.(voiceError);
+            });
+
+            // Initialize Speechmatics service
+            const speechmaticsConfig: SpeechmaticsConfig = {
+                language: widgetState.currentLanguage,
+                enablePartials: true,
+                punctuationPermitted: true,
+                sampleRate: 44100,
+                encoding: 'pcm_f32le',
+            };
+
+            const speechmaticsService = new SpeechmaticsService(speechmaticsConfig);
+            speechmaticsServiceRef.current = speechmaticsService;
+
+            // Set up Speechmatics event handlers
+            speechmaticsService.on('connected', () => {
+                if (debug) {
+                    log(logLevel, 'Speechmatics connected');
+                }
+            });
+
+            speechmaticsService.on('recognitionStarted', () => {
+                if (debug) {
+                    log(logLevel, 'Speechmatics recognition started');
+                }
+            });
+
+            speechmaticsService.on('partialTranscript', (transcriptData) => {
+                setWidgetState(prev => ({
+                    ...prev,
+                    partialTranscript: transcriptData.transcript,
+                }));
+            });
+
+            speechmaticsService.on('finalTranscript', (transcriptData) => {
+                setWidgetState(prev => ({
+                    ...prev,
+                    transcript: prev.transcript + ' ' + transcriptData.transcript,
+                    partialTranscript: '',
+                }));
+            });
+
+            speechmaticsService.on('error', (error) => {
+                const voiceError = createError(
+                    'SPEECHMATICS_ERROR',
+                    'Speechmatics error',
+                    { originalError: error }
+                );
+                setWidgetState(prev => ({ ...prev, error: voiceError }));
+                onError?.(voiceError);
+            });
+
+            // Connect to services
+            await webRTCService.initialize();
+            await speechmaticsService.connect(apiKey);
+
+            // Start streaming
+            webRTCService.startStreaming();
 
             // Create session
             const session = {
@@ -159,7 +268,7 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
             onConversationStart?.(session);
 
             if (debug) {
-                log(logLevel, 'Conversation started', session);
+                log(logLevel, 'Conversation started with WebRTC and Speechmatics', session);
             }
         } catch (error) {
             const voiceError = createError(
@@ -174,7 +283,7 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
             }));
             onError?.(voiceError);
         }
-    }, [officerEmail, appName, widgetState.currentLanguage, onConversationStart, onError, debug, logLevel]);
+    }, [apiKey, officerEmail, appName, widgetState.currentLanguage, onConversationStart, onError, debug, logLevel]);
 
     // Handle conversation end
     const handleEndConversation = useCallback(async () => {
@@ -183,6 +292,20 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
                 ...prev,
                 isProcessing: true,
             }));
+
+            // Stop WebRTC streaming
+            if (webRTCServiceRef.current) {
+                webRTCServiceRef.current.stopStreaming();
+                webRTCServiceRef.current.disconnect();
+                webRTCServiceRef.current = null;
+            }
+
+            // End Speechmatics stream and disconnect
+            if (speechmaticsServiceRef.current) {
+                speechmaticsServiceRef.current.endStream();
+                speechmaticsServiceRef.current.disconnect();
+                speechmaticsServiceRef.current = null;
+            }
 
             // Stop media stream
             if (mediaStreamRef.current) {
@@ -202,6 +325,7 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
                     Math.floor((new Date().getTime() - widgetState.session.startTime.getTime()) / 1000) : 0,
                 language: widgetState.currentLanguage,
                 status: 'processing' as const,
+                transcript: widgetState.transcript,
             };
 
             setWidgetState(prev => ({
@@ -211,12 +335,14 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
                 isProcessing: false,
                 isConnected: false,
                 session: null,
+                transcript: '',
+                partialTranscript: '',
             }));
 
             onConversationEnd?.(conversation);
 
             if (debug) {
-                log(logLevel, 'Conversation ended', conversation);
+                log(logLevel, 'Conversation ended with transcript', conversation);
             }
         } catch (error) {
             const voiceError = createError(
@@ -231,7 +357,7 @@ export const VoiceChatWidget: React.FC<VoiceChatWidgetProps> = ({
             }));
             onError?.(voiceError);
         }
-    }, [officerEmail, appName, widgetState.session, widgetState.currentLanguage, onConversationEnd, onError, debug, logLevel]);
+    }, [officerEmail, appName, widgetState.session, widgetState.currentLanguage, widgetState.transcript, onConversationEnd, onError, debug, logLevel]);
 
     // Handle error dismissal
     const handleDismissError = useCallback(() => {
