@@ -16,10 +16,10 @@ COPY package*.json ./
 COPY server/package*.json ./server/
 COPY src/package*.json ./src/
 
-# Install dependencies
-RUN npm ci --only=production --silent
-RUN cd server && npm ci --only=production --silent
-RUN cd src && npm ci --only=production --silent
+# Install dependencies (including dev dependencies for testing)
+RUN npm install --silent
+RUN cd server && npm install --silent
+RUN cd src && npm install --silent
 
 # Copy source code
 COPY . .
