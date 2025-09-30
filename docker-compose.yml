@@ -1,0 +1,238 @@
+version: '3.8'
+
+services:
+  # Redis for task queues and caching
+  redis:
+    image: redis:7-alpine
+    container_name: voice-chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - voice-chat-network
+
+  # MinIO for audio file storage
+  minio:
+    image: minio/minio:latest
+    container_name: voice-chat-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - voice-chat-network
+
+  # Voice Chat Server (Development)
+  server-dev:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-server-dev
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      APP_PORT: 3001
+      APP_HOST: 0.0.0.0
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:3000,http://localhost:3001
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./server/logs:/app/logs
+      - ./.env:/app/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - voice-chat-network
+
+  # Voice Chat Server (Production)
+  server-prod:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: production
+    container_name: voice-chat-server-prod
+    ports:
+      - "3002:3001"
+    environment:
+      NODE_ENV: production
+      APP_PORT: 3001
+      APP_HOST: 0.0.0.0
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      LOG_LEVEL: info
+      CORS_ORIGIN: http://localhost:3000,http://localhost:3001
+    volumes:
+      - ./server/logs:/app/logs
+      - ./.env:/app/.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - voice-chat-network
+    profiles:
+      - production
+
+  # Widget Development Server
+  widget-dev:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-widget-dev
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_SERVER_URL: http://localhost:3001
+      CHOKIDAR_USEPOLLING: true
+    volumes:
+      - ./src:/app
+      - /app/node_modules
+    depends_on:
+      - server-dev
+    networks:
+      - voice-chat-network
+
+  # Widget Production Server
+  widget-prod:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+      target: production
+    container_name: voice-chat-widget-prod
+    ports:
+      - "3003:80"
+    depends_on:
+      - server-prod
+    networks:
+      - voice-chat-network
+    profiles:
+      - production
+
+  # Test Environment
+  test:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    container_name: voice-chat-tests
+    environment:
+      NODE_ENV: test
+      LOG_LEVEL: error
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+      - /app/src/node_modules
+      - ./coverage:/app/coverage
+    command: ["npm", "test"]
+    networks:
+      - voice-chat-network
+    profiles:
+      - test
+
+  # Test with Coverage
+  test-coverage:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    container_name: voice-chat-tests-coverage
+    environment:
+      NODE_ENV: test
+      LOG_LEVEL: error
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+      - /app/src/node_modules
+      - ./coverage:/app/coverage
+    command: ["npm", "run", "test:coverage"]
+    networks:
+      - voice-chat-network
+    profiles:
+      - test
+
+  # Lint and Format Check
+  lint:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    container_name: voice-chat-lint
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+      - /app/src/node_modules
+    command: ["npm", "run", "lint"]
+    networks:
+      - voice-chat-network
+    profiles:
+      - lint
+
+  # Type Check
+  type-check:
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    container_name: voice-chat-type-check
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+      - /app/src/node_modules
+    command: ["npm", "run", "type-check"]
+    networks:
+      - voice-chat-network
+    profiles:
+      - type-check
+
+volumes:
+  redis_data:
+  minio_data:
+
+networks:
+  voice-chat-network:
+    driver: bridge
