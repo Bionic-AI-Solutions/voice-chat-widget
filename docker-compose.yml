@@ -232,6 +232,33 @@ services:
     profiles:
       - type-check
 
+  # Admin Dashboard
+  admin-dev:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-admin-dev
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_SUPABASE_URL: http://host.docker.internal:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH
+      SUPABASE_SERVICE_ROLE_KEY: sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz
+      NEXT_PUBLIC_API_URL: http://host.docker.internal:3001
+      NEXT_PUBLIC_APP_URL: http://localhost:3002
+    volumes:
+      - ./admin:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - server-dev
+    networks:
+      - voice-chat-network
+    profiles:
+      - admin
+
 volumes:
   redis_data:
   minio_data:
