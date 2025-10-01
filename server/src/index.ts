@@ -60,8 +60,8 @@ class VoiceChatServer {
     private setupRoutes(): void {
         // Health check endpoint
         this.app.get('/health', (req, res) => {
-            res.json({ 
-                status: 'healthy', 
+            res.json({
+                status: 'healthy',
                 timestamp: new Date().toISOString(),
                 uptime: process.uptime(),
                 version: process.env['npm_package_version'] || '1.0.0'
@@ -119,7 +119,7 @@ class VoiceChatServer {
             socket.on('startSession', async (data) => {
                 try {
                     const { officerEmail, appName, language = 'en' } = data;
-                    
+
                     if (!officerEmail || !appName) {
                         socket.emit('error', { message: 'Missing required fields: officerEmail and appName' });
                         return;
@@ -173,7 +173,7 @@ class VoiceChatServer {
             socket.on('audioData', (data) => {
                 try {
                     const { sessionId, audioChunk } = data;
-                    
+
                     if (!sessionId || !audioChunk) {
                         socket.emit('error', { message: 'Missing sessionId or audioChunk' });
                         return;
@@ -195,14 +195,14 @@ class VoiceChatServer {
             socket.on('endSession', async (data) => {
                 try {
                     const { sessionId } = data;
-                    
+
                     if (!sessionId) {
                         socket.emit('error', { message: 'Missing sessionId' });
                         return;
                     }
 
                     const conversation = await this.sessionManager.endSession(sessionId);
-                    
+
                     // Clean up Speechmatics service
                     const speechmaticsService = this.speechmaticsServices.get(sessionId);
                     if (speechmaticsService) {
@@ -223,7 +223,7 @@ class VoiceChatServer {
             socket.on('webrtc-signal', async (data) => {
                 try {
                     const { sessionId, signal } = data;
-                    
+
                     if (!sessionId || !signal) {
                         socket.emit('error', { message: 'Missing sessionId or signal' });
                         return;
@@ -231,7 +231,7 @@ class VoiceChatServer {
 
                     // Handle WebRTC signaling through the service
                     await this.webrtcService.handleSignal(sessionId, signal);
-                    
+
                     // Forward the signal to other clients if needed
                     socket.to(sessionId).emit('webrtc-signal', { sessionId, signal });
 
@@ -245,7 +245,7 @@ class VoiceChatServer {
             socket.on('create-webrtc-connection', async (data) => {
                 try {
                     const { sessionId } = data;
-                    
+
                     if (!sessionId) {
                         socket.emit('error', { message: 'Missing sessionId' });
                         return;
@@ -253,7 +253,7 @@ class VoiceChatServer {
 
                     // Create WebRTC connection
                     const peerConnection = await this.webrtcService.createConnection(sessionId);
-                    
+
                     // Set up event handlers for this connection
                     this.webrtcService.on('iceCandidate', ({ sessionId: connSessionId, candidate }) => {
                         if (connSessionId === sessionId) {
@@ -294,13 +294,13 @@ class VoiceChatServer {
             // Handle disconnection
             socket.on('disconnect', () => {
                 logger.info(`Client disconnected: ${socket.id}`);
-                
+
                 // Clean up any active sessions for this client
                 const sessions = this.sessionManager.getSessionsByClientId(socket.id);
                 sessions.forEach(async (session) => {
                     try {
                         await this.sessionManager.endSession(session.id);
-                        
+
                         // Clean up Speechmatics service
                         const speechmaticsService = this.speechmaticsServices.get(session.id);
                         if (speechmaticsService) {
@@ -363,7 +363,7 @@ class VoiceChatServer {
      */
     private shutdown(): void {
         logger.info('Shutting down server...');
-        
+
         // Close all Speechmatics connections
         this.speechmaticsServices.forEach((service) => {
             service.disconnect();

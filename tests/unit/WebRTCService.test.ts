@@ -71,7 +71,7 @@ describe('WebRTCService', () => {
 
         it('should emit error events', (done) => {
             const testError = new Error('Test error');
-            
+
             webRTCService.on('error', (error) => {
                 expect(error).toBe(testError);
                 done();

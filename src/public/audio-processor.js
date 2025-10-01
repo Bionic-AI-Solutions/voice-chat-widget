@@ -12,7 +12,7 @@ class AudioProcessor extends AudioWorkletProcessor {
 
         if (input.length > 0) {
             const inputChannel = input[0];
-            
+
             // Copy input to output (pass-through)
             if (output.length > 0) {
                 output[0].set(inputChannel);
@@ -29,10 +29,10 @@ class AudioProcessor extends AudioWorkletProcessor {
                     const audioData = new ArrayBuffer(this.bufferSize * 4);
                     const view = new Float32Array(audioData);
                     view.set(this.buffer);
-                    
+
                     // Send audio data to main thread
                     this.port.postMessage(audioData);
-                    
+
                     // Reset buffer
                     this.bufferIndex = 0;
                 }

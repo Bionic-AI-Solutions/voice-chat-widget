@@ -144,7 +144,7 @@ export class SpeechmaticsService extends EventEmitter {
 
             // Use the correct WebSocket URL format from documentation
             const wsUrl = 'wss://eu2.rt.speechmatics.com/v2/';
-            
+
             // Create WebSocket connection with proper headers
             this.ws = new WebSocket(wsUrl, {
                 headers: {
@@ -232,13 +232,13 @@ export class SpeechmaticsService extends EventEmitter {
         try {
             // Increment sequence number for this audio chunk
             this.audioSequenceNumber++;
-            
+
             // Convert audio data to the expected format
             const audioData = this.convertAudioData(audioChunk);
-            
+
             // Send as binary data (AddAudio message)
             this.ws.send(audioData);
-            
+
             logger.debug(`Sent audio chunk to Speechmatics: ${audioData.length} bytes, seq: ${this.audioSequenceNumber}`);
         } catch (error) {
             logger.error('Error sending audio to Speechmatics:', error);
@@ -299,7 +299,7 @@ export class SpeechmaticsService extends EventEmitter {
             logger.warn(`Speechmatics WebSocket closed: ${code} ${reason}`);
             this.isConnected = false;
             this.emit('disconnected');
-            
+
             // Attempt to reconnect if not intentionally closed
             if (code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.attemptReconnect();
@@ -474,10 +474,10 @@ export class SpeechmaticsService extends EventEmitter {
     private convertAudioData(audioChunk: AudioChunk): Buffer {
         // Convert ArrayBuffer to Buffer
         const buffer = Buffer.from(audioChunk.data);
-        
+
         // Apply any necessary audio processing here
         // For now, we'll just return the buffer as-is
-        
+
         return buffer;
     }
 
@@ -488,7 +488,7 @@ export class SpeechmaticsService extends EventEmitter {
         this.heartbeatInterval = setInterval(() => {
             if (this.isConnected && this.ws) {
                 const now = Date.now();
-                
+
                 // Send ping if no heartbeat received in 30 seconds
                 if (now - this.lastHeartbeat > 30000) {
                     this.ws.ping();

@@ -207,12 +207,12 @@ export class WebRTCService extends EventEmitter {
         processor.onaudioprocess = (event) => {
             const inputBuffer = event.inputBuffer;
             const inputData = inputBuffer.getChannelData(0);
-            
+
             // Convert Float32Array to ArrayBuffer
             const audioData = new ArrayBuffer(inputData.length * 4);
             const view = new Float32Array(audioData);
             view.set(inputData);
-            
+
             this.processAudioData(audioData);
         };
 
@@ -260,7 +260,7 @@ export class WebRTCService extends EventEmitter {
         this.peerConnection.onconnectionstatechange = () => {
             const state = this.peerConnection?.connectionState;
             this.emit('connectionStateChange', state);
-            
+
             if (state === 'connected') {
                 this.emit('peerConnected');
             } else if (state === 'disconnected' || state === 'failed') {
@@ -283,7 +283,7 @@ export class WebRTCService extends EventEmitter {
 
         const offer = await this.peerConnection.createOffer();
         await this.peerConnection.setLocalDescription(offer);
-        
+
         return offer;
     }
 
@@ -298,7 +298,7 @@ export class WebRTCService extends EventEmitter {
         await this.peerConnection.setRemoteDescription(offer);
         const answer = await this.peerConnection.createAnswer();
         await this.peerConnection.setLocalDescription(answer);
-        
+
         return answer;
     }
 

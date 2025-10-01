@@ -47,7 +47,7 @@ export class SpeechmaticsService extends EventEmitter {
         try {
             // Use temporary key for browser-based transcription
             const tempKey = await this.getTemporaryKey(apiKey);
-            
+
             // Create WebSocket connection with temporary key
             const wsUrl = `wss://eu2.rt.speechmatics.com/v2?jwt=${tempKey}`;
             this.ws = new WebSocket(wsUrl);
@@ -117,10 +117,10 @@ export class SpeechmaticsService extends EventEmitter {
         try {
             // Increment sequence number
             this.audioSequenceNumber++;
-            
+
             // Send as binary data (AddAudio message)
             this.ws.send(audioData);
-            
+
             console.debug(`Sent audio chunk to Speechmatics: ${audioData.byteLength} bytes, seq: ${this.audioSequenceNumber}`);
         } catch (error) {
             console.error('Error sending audio to Speechmatics:', error);
@@ -208,7 +208,7 @@ export class SpeechmaticsService extends EventEmitter {
             console.warn(`Speechmatics WebSocket closed: ${event.code} ${event.reason}`);
             this.isConnected = false;
             this.emit('disconnected');
-            
+
             // Attempt to reconnect if not intentionally closed
             if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
                 this.attemptReconnect();

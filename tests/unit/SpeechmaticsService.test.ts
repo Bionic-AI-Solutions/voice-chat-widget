@@ -54,7 +54,7 @@ describe('SpeechmaticsService', () => {
     describe('sendAudio', () => {
         it('should not send audio when not connected', () => {
             const mockAudioData = new ArrayBuffer(1024);
-            
+
             expect(() => {
                 speechmaticsService.sendAudio(mockAudioData);
             }).not.toThrow();
@@ -80,7 +80,7 @@ describe('SpeechmaticsService', () => {
 
         it('should emit error events', (done) => {
             const testError = new Error('Test error');
-            
+
             speechmaticsService.on('error', (error) => {
                 expect(error).toBe(testError);
                 done();
