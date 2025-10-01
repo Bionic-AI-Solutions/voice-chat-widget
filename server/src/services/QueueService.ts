@@ -1,10 +1,10 @@
-import { Queue, Worker, Job, QueueOptions, WorkerOptions } from 'bull';
+import Bull from 'bull';
 import Redis from 'ioredis';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 
 export interface QueueConfig {
-    redis: {
+    redis: string | {
         host: string;
         port: number;
         password?: string;
@@ -35,14 +35,14 @@ export interface JobData {
     delay?: number;
 }
 
-export interface QueueJob extends Job<JobData> {
+export interface QueueJob extends Bull.Job<JobData> {
     data: JobData;
 }
 
 export class QueueService extends EventEmitter {
     private redis: Redis;
-    private queues: Map<string, Queue> = new Map();
-    private workers: Map<string, Worker> = new Map();
+    private queues: Map<string, Bull.Queue> = new Map();
+    private workers: Map<string, Bull.Worker> = new Map();
     private config: QueueConfig;
     private isInitialized = false;
 
@@ -61,8 +61,15 @@ export class QueueService extends EventEmitter {
      * Load configuration from environment variables
      */
     private loadConfig(): QueueConfig {
-        return {
-            redis: {
+        // Parse REDIS_URL if available, otherwise use individual components
+        let redisConfig: any = {};
+        
+        if (process.env['REDIS_URL']) {
+            // Use REDIS_URL directly
+            redisConfig = process.env['REDIS_URL'];
+        } else {
+            // Use individual components
+            redisConfig = {
                 host: process.env['REDIS_HOST'] || 'localhost',
                 port: parseInt(process.env['REDIS_PORT'] || '6379'),
                 password: process.env['REDIS_PASSWORD'],
@@ -71,7 +78,11 @@ export class QueueService extends EventEmitter {
                 retryDelayOnFailover: 100,
                 enableReadyCheck: true,
                 lazyConnect: true,
-            },
+            };
+        }
+
+        return {
+            redis: redisConfig,
             defaultJobOptions: {
                 removeOnComplete: 10,
                 removeOnFail: 5,
@@ -94,16 +105,22 @@ export class QueueService extends EventEmitter {
             }
 
             // Create Redis connection
-            this.redis = new Redis({
-                host: this.config.redis.host,
-                port: this.config.redis.port,
-                password: this.config.redis.password,
-                db: this.config.redis.db,
-                maxRetriesPerRequest: this.config.redis.maxRetriesPerRequest,
-                retryDelayOnFailover: this.config.redis.retryDelayOnFailover,
-                enableReadyCheck: this.config.redis.enableReadyCheck,
-                lazyConnect: this.config.redis.lazyConnect,
-            });
+            if (typeof this.config.redis === 'string') {
+                // Use REDIS_URL directly
+                this.redis = new Redis(this.config.redis);
+            } else {
+                // Use individual components
+                this.redis = new Redis({
+                    host: this.config.redis.host,
+                    port: this.config.redis.port,
+                    password: this.config.redis.password,
+                    db: this.config.redis.db,
+                    maxRetriesPerRequest: this.config.redis.maxRetriesPerRequest,
+                    retryDelayOnFailover: this.config.redis.retryDelayOnFailover,
+                    enableReadyCheck: this.config.redis.enableReadyCheck,
+                    lazyConnect: this.config.redis.lazyConnect,
+                });
+            }
 
             // Set up Redis event handlers
             this.redis.on('connect', () => {
@@ -154,18 +171,13 @@ export class QueueService extends EventEmitter {
     /**
      * Create a new queue
      */
-    private async createQueue(queueName: string): Promise<Queue> {
-        const queueOptions: QueueOptions = {
-            redis: {
-                host: this.config.redis.host,
-                port: this.config.redis.port,
-                password: this.config.redis.password,
-                db: this.config.redis.db,
-            },
+    private async createQueue(queueName: string): Promise<Bull.Queue> {
+        const queueOptions: Bull.QueueOptions = {
+            redis: this.config.redis,
             defaultJobOptions: this.config.defaultJobOptions,
         };
 
-        const queue = new Queue(queueName, queueOptions);
+        const queue = new Bull(queueName, queueOptions);
 
         // Set up queue event handlers
         queue.on('error', (error) => {

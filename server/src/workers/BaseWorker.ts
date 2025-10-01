@@ -1,4 +1,4 @@
-import { Worker, Job } from 'bull';
+import Bull from 'bull';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 import { QueueService, JobData, QueueJob } from '../services/QueueService';
@@ -25,7 +25,7 @@ export interface WorkerStatus {
 }
 
 export abstract class BaseWorker extends EventEmitter {
-    protected worker: Worker | null = null;
+    protected worker: Bull.Worker | null = null;
     protected config: WorkerConfig;
     protected isRunning = false;
     protected isHealthy = true;
@@ -66,9 +66,9 @@ export abstract class BaseWorker extends EventEmitter {
                 return;
             }
 
-            this.worker = new Worker(
+            this.worker = new Bull.Worker(
                 this.queueName,
-                async (job: Job<JobData>) => {
+                async (job: Bull.Job<JobData>) => {
                     return this.processJob(job as QueueJob);
                 },
                 {

@@ -8,6 +8,8 @@ import { logger } from './utils/logger';
 import { SessionManager } from './services/SessionManager';
 import { SpeechmaticsService } from './services/SpeechmaticsService';
 import { WebRTCService } from './services/WebRTCService';
+import { QueueService } from './services/QueueService';
+import { WorkerManager } from './workers/WorkerManager';
 import { AudioChunk } from './types';
 
 // Load environment variables
@@ -20,6 +22,8 @@ class VoiceChatServer {
     private sessionManager: SessionManager;
     private webrtcService: WebRTCService;
     private speechmaticsServices: Map<string, SpeechmaticsService> = new Map();
+    private queueService: QueueService;
+    private workerManager: WorkerManager;
 
     constructor() {
         this.app = express();
@@ -34,6 +38,8 @@ class VoiceChatServer {
 
         this.sessionManager = new SessionManager();
         this.webrtcService = new WebRTCService();
+        this.queueService = new QueueService();
+        this.workerManager = new WorkerManager();
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -210,6 +216,37 @@ class VoiceChatServer {
                         this.speechmaticsServices.delete(sessionId);
                     }
 
+                    // Create jobs for post-processing
+                    if (conversation) {
+                        // Add audio processing job
+                        await this.queueService.addJob(QueueService.AUDIO_QUEUE, {
+                            sessionId: conversation.session_id,
+                            conversationId: conversation.id,
+                            audioUrl: conversation.audio_url,
+                            metadata: {
+                                officerEmail: conversation.officer_email,
+                                appName: conversation.app_name,
+                                language: conversation.language,
+                                duration: conversation.duration
+                            }
+                        });
+
+                        // Add summary generation job (depends on audio processing)
+                        await this.queueService.addJob(QueueService.SUMMARY_QUEUE, {
+                            sessionId: conversation.session_id,
+                            conversationId: conversation.id,
+                            metadata: {
+                                officerEmail: conversation.officer_email,
+                                appName: conversation.app_name,
+                                language: conversation.language
+                            }
+                        }, {
+                            delay: 30000 // Wait 30 seconds for audio processing to complete
+                        });
+
+                        logger.info(`Created processing jobs for conversation: ${conversation.id}`);
+                    }
+
                     socket.emit('sessionEnded', conversation);
                     logger.info(`Session ended: ${sessionId}`);
 
@@ -347,49 +384,79 @@ class VoiceChatServer {
     /**
      * Start the server
      */
-    public start(): void {
-        const port = process.env['APP_PORT'] || 3001;
-        const host = process.env['APP_HOST'] || '0.0.0.0';
+    public async start(): Promise<void> {
+        try {
+            // Initialize queue service
+            await this.queueService.initialize();
+            logger.info('Queue service initialized');
 
-        this.server.listen(port, host, () => {
-            logger.info(`Voice Chat Server running on ${host}:${port}`);
-            logger.info(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
-            logger.info(`CORS Origins: ${process.env['CORS_ORIGIN'] || 'default'}`);
-        });
+            // Initialize worker manager (optional for now)
+            try {
+                await this.workerManager.initialize();
+                logger.info('Worker manager initialized');
+            } catch (error) {
+                logger.warn('Worker manager initialization failed, continuing without workers:', error.message);
+            }
+
+            const port = process.env['APP_PORT'] || 3001;
+            const host = process.env['APP_HOST'] || '0.0.0.0';
+
+            this.server.listen(port, host, () => {
+                logger.info(`Voice Chat Server running on ${host}:${port}`);
+                logger.info(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
+                logger.info(`CORS Origins: ${process.env['CORS_ORIGIN'] || 'default'}`);
+            });
+        } catch (error) {
+            logger.error('Failed to start server:', error);
+            process.exit(1);
+        }
     }
 
     /**
      * Shutdown the server gracefully
      */
-    private shutdown(): void {
+    private async shutdown(): Promise<void> {
         logger.info('Shutting down server...');
 
-        // Close all Speechmatics connections
-        this.speechmaticsServices.forEach((service) => {
-            service.disconnect();
-        });
-        this.speechmaticsServices.clear();
+        try {
+            // Stop worker manager
+            await this.workerManager.shutdown();
+            logger.info('Worker manager stopped');
 
-        // Close all WebRTC connections
-        this.webrtcService.closeAllConnections().then(() => {
+            // Close queue service
+            await this.queueService.shutdown();
+            logger.info('Queue service stopped');
+
+            // Close all Speechmatics connections
+            this.speechmaticsServices.forEach((service) => {
+                service.disconnect();
+            });
+            this.speechmaticsServices.clear();
+
+            // Close all WebRTC connections
+            await this.webrtcService.closeAllConnections();
             logger.info('All WebRTC connections closed');
-        }).catch((error) => {
-            logger.error('Error closing WebRTC connections:', error);
-        });
 
-        // Close Socket.IO server
-        this.io.close(() => {
-            logger.info('Socket.IO server closed');
-        });
+            // Close Socket.IO server
+            this.io.close(() => {
+                logger.info('Socket.IO server closed');
+            });
 
-        // Close HTTP server
-        this.server.close(() => {
-            logger.info('HTTP server closed');
-            process.exit(0);
-        });
+            // Close HTTP server
+            this.server.close(() => {
+                logger.info('HTTP server closed');
+                process.exit(0);
+            });
+        } catch (error) {
+            logger.error('Error during shutdown:', error);
+            process.exit(1);
+        }
     }
 }
 
 // Start the server
 const server = new VoiceChatServer();
-server.start();
+server.start().catch((error) => {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+});
