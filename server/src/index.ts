@@ -10,6 +10,8 @@ import { SpeechmaticsService } from './services/SpeechmaticsService';
 import { WebRTCService } from './services/WebRTCService';
 import { QueueService } from './services/QueueService';
 import { WorkerManager } from './workers/WorkerManager';
+import { SupabaseService } from './services/SupabaseService';
+import { WebhookService } from './services/WebhookService';
 import { AudioChunk } from './types';
 
 // Load environment variables
@@ -24,6 +26,8 @@ class VoiceChatServer {
     private speechmaticsServices: Map<string, SpeechmaticsService> = new Map();
     private queueService: QueueService;
     private workerManager: WorkerManager;
+    private supabaseService: SupabaseService;
+    private webhookService: WebhookService;
 
     constructor() {
         this.app = express();
@@ -40,11 +44,14 @@ class VoiceChatServer {
         this.webrtcService = new WebRTCService();
         this.queueService = new QueueService();
         this.workerManager = new WorkerManager();
+        this.supabaseService = new SupabaseService();
+        this.webhookService = new WebhookService(this.supabaseService);
 
         this.setupMiddleware();
         this.setupRoutes();
         this.setupSocketHandlers();
         this.setupEventHandlers();
+        this.setupGlobalIO();
     }
 
     /**
@@ -109,6 +116,46 @@ class VoiceChatServer {
                 res.json({ message: 'Session ended successfully' });
             } catch (error) {
                 logger.error('Error ending session:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
+        // Webhook routes for Supabase database changes
+        this.app.post('/webhooks/supabase', (req, res) => {
+            this.webhookService.handleSupabaseWebhook(req, res);
+        });
+
+        // Task management routes
+        this.app.post('/api/tasks/:taskId/cancel', async (req, res) => {
+            try {
+                const { taskId } = req.params;
+                await this.supabaseService.cancelTask(taskId);
+                res.json({ message: 'Task cancelled successfully' });
+            } catch (error) {
+                logger.error('Error cancelling task:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
+        this.app.post('/api/tasks/:taskId/retry', async (req, res) => {
+            try {
+                const { taskId } = req.params;
+                await this.supabaseService.retryTask(taskId);
+                res.json({ message: 'Task retry initiated successfully' });
+            } catch (error) {
+                logger.error('Error retrying task:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
+        // Real-time subscription routes
+        this.app.get('/api/conversations/:conversationId', async (req, res) => {
+            try {
+                const { conversationId } = req.params;
+                const conversation = await this.supabaseService.getConversationWithTasks(conversationId);
+                res.json({ conversation });
+            } catch (error) {
+                logger.error('Error fetching conversation:', error);
                 res.status(500).json({ error: 'Internal server error' });
             }
         });
@@ -382,6 +429,15 @@ class VoiceChatServer {
     }
 
     /**
+     * Setup global IO instance for real-time updates
+     */
+    private setupGlobalIO(): void {
+        // Make io instance globally available for Supabase service
+        (global as any).io = this.io;
+        logger.info('Global IO instance set up for real-time updates');
+    }
+
+    /**
      * Start the server
      */
     public async start(): Promise<void> {
@@ -436,6 +492,10 @@ class VoiceChatServer {
             // Close all WebRTC connections
             await this.webrtcService.closeAllConnections();
             logger.info('All WebRTC connections closed');
+
+            // Cleanup Supabase service
+            this.supabaseService.cleanup();
+            logger.info('Supabase service cleaned up');
 
             // Close Socket.IO server
             this.io.close(() => {

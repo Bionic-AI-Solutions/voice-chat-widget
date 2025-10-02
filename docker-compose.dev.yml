@@ -1,0 +1,383 @@
+version: '3.8'
+
+# Development-focused Docker Compose configuration
+# This keeps the host environment completely clean
+
+services:
+  # =============================================================================
+  # INFRASTRUCTURE SERVICES
+  # =============================================================================
+  
+  # Redis for task queues and caching
+  redis:
+    image: redis:7-alpine
+    container_name: voice-chat-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # MinIO for audio file storage
+  minio:
+    image: minio/minio:latest
+    container_name: voice-chat-minio-dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_dev_data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DEFAULT_BUCKETS: voice-recordings,reports,temp-files
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 30s
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # SUPABASE LOCAL DEVELOPMENT
+  # =============================================================================
+  
+  # Supabase Local Stack
+  supabase-db:
+    image: supabase/postgres:15.1.0.117
+    container_name: voice-chat-supabase-db
+    ports:
+      - "54322:5432"
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      PGUSER: postgres
+      POSTGRES_USER: postgres
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # Supabase Studio
+  supabase-studio:
+    image: supabase/studio:20231215-7b5c0e3
+    container_name: voice-chat-supabase-studio
+    ports:
+      - "54323:3000"
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: postgres
+      DEFAULT_ORGANIZATION_NAME: Default Organization
+      DEFAULT_PROJECT_NAME: Default Project
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: http://localhost:54321
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5NTY2NjgsImV4cCI6MjA3NDUzMjY2OH0.cFV-eVLR47SmLCl60tMrMPEcRb3apv7FswkpOcjOYv8
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+    depends_on:
+      - supabase-db
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # =============================================================================
+  # DEVELOPMENT CONTAINERS
+  # =============================================================================
+
+  # Development Environment Container
+  dev-env:
+    build:
+      context: .
+      dockerfile: docker/dev/Dockerfile
+      target: development
+    container_name: voice-chat-dev-env
+    volumes:
+      - .:/workspace
+      - node_modules_cache:/workspace/node_modules
+      - server_node_modules_cache:/workspace/server/node_modules
+      - src_node_modules_cache:/workspace/src/node_modules
+      - admin_node_modules_cache:/workspace/admin/node_modules
+      - /workspace/server/node_modules
+      - /workspace/src/node_modules
+      - /workspace/admin/node_modules
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5NTY2NjgsImV4cCI6MjA3NDUzMjY2OH0.cFV-eVLR47SmLCl60tMrMPEcRb3apv7FswkpOcjOYv8
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+      SPEECHMATICS_API_KEY: uT6VnTyO2seykGvFDyNP2R986gylZSOT
+      OPENAI_API_KEY: your_openai_api_key
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - voice-chat-dev-network
+    working_dir: /workspace
+    command: ["tail", "-f", "/dev/null"]  # Keep container running
+    restart: unless-stopped
+
+  # =============================================================================
+  # APPLICATION SERVICES
+  # =============================================================================
+
+  # Voice Chat Server (Development)
+  server-dev:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-server-dev
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      APP_PORT: 3001
+      APP_HOST: 0.0.0.0
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      LOG_LEVEL: debug
+      CORS_ORIGIN: http://localhost:3000,http://localhost:3002
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5NTY2NjgsImV4cCI6MjA3NDUzMjY2OH0.cFV-eVLR47SmLCl60tMrMPEcRb3apv7FswkpOcjOYv8
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+      SPEECHMATICS_API_KEY: uT6VnTyO2seykGvFDyNP2R986gylZSOT
+      OPENAI_API_KEY: your_openai_api_key
+    volumes:
+      - ./server:/app
+      - server_node_modules_cache:/app/node_modules
+      - ./server/logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      supabase-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # Widget Development Server
+  widget-dev:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-widget-dev
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_SERVER_URL: http://localhost:3001
+      CHOKIDAR_USEPOLLING: true
+      WATCHPACK_POLLING: true
+    volumes:
+      - ./src:/app
+      - src_node_modules_cache:/app/node_modules
+    depends_on:
+      - server-dev
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # Admin Dashboard Development
+  admin-dev:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-admin-dev
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg5NTY2NjgsImV4cCI6MjA3NDUzMjY2OH0.cFV-eVLR47SmLCl60tMrMPEcRb3apv7FswkpOcjOYv8
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_APP_URL: http://localhost:3002
+    volumes:
+      - ./admin:/app
+      - admin_node_modules_cache:/app/node_modules
+      - ./admin/.next:/app/.next
+    depends_on:
+      - server-dev
+    networks:
+      - voice-chat-dev-network
+    restart: unless-stopped
+
+  # Worker Processes
+  workers-dev:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: development
+    container_name: voice-chat-workers-dev
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      LOG_LEVEL: debug
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+      SPEECHMATICS_API_KEY: uT6VnTyO2seykGvFDyNP2R986gylZSOT
+      OPENAI_API_KEY: your_openai_api_key
+    volumes:
+      - ./server:/app
+      - server_node_modules_cache:/app/node_modules
+      - ./server/logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - voice-chat-dev-network
+    command: ["npm", "run", "dev:workers"]
+    restart: unless-stopped
+
+  # =============================================================================
+  # DEVELOPMENT TOOLS
+  # =============================================================================
+
+  # Testing Container
+  test-runner:
+    build:
+      context: .
+      dockerfile: docker/dev/Dockerfile
+      target: testing
+    container_name: voice-chat-test-runner
+    volumes:
+      - .:/workspace
+      - node_modules_cache:/workspace/node_modules
+      - server_node_modules_cache:/workspace/server/node_modules
+      - src_node_modules_cache:/workspace/src/node_modules
+      - admin_node_modules_cache:/workspace/admin/node_modules
+      - ./coverage:/workspace/coverage
+    environment:
+      NODE_ENV: test
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_USE_SSL: false
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVydXRndG9zZXpnZm5sbmF6Z3FhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODk1NjY2OCwiZXhwIjoyMDc0NTMyNjY4fQ.zIwbFgbqgqAiyGqgbnzX-wTVhjLfF5dNT5pbjdrIWCY
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - voice-chat-dev-network
+    working_dir: /workspace
+    profiles:
+      - testing
+
+  # Linting and Code Quality
+  code-quality:
+    build:
+      context: .
+      dockerfile: docker/dev/Dockerfile
+      target: development
+    container_name: voice-chat-code-quality
+    volumes:
+      - .:/workspace
+      - node_modules_cache:/workspace/node_modules
+      - server_node_modules_cache:/workspace/server/node_modules
+      - src_node_modules_cache:/workspace/src/node_modules
+      - admin_node_modules_cache:/workspace/admin/node_modules
+    environment:
+      NODE_ENV: development
+    networks:
+      - voice-chat-dev-network
+    working_dir: /workspace
+    profiles:
+      - quality
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+
+volumes:
+  # Data persistence
+  redis_dev_data:
+    driver: local
+  minio_dev_data:
+    driver: local
+  supabase_db_data:
+    driver: local
+  
+  # Node modules caching (prevents re-downloading on every restart)
+  node_modules_cache:
+    driver: local
+  server_node_modules_cache:
+    driver: local
+  src_node_modules_cache:
+    driver: local
+  admin_node_modules_cache:
+    driver: local
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+
+networks:
+  voice-chat-dev-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
