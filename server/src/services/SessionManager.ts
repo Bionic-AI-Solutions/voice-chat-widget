@@ -30,23 +30,23 @@ export class SessionManager extends EventEmitter {
         try {
             const session: Session = {
                 id: uuidv4(),
-                officerEmail: data.officerEmail,
-                appName: data.appName,
+                officer_email: data.officer_email,
+                app_name: data.app_name,
                 language: data.language || 'en',
-                clientId: data.clientId,
-                startTime: new Date(),
+                client_id: data.client_id,
+                start_time: new Date(),
                 status: 'active',
             };
 
             this.sessions.set(session.id, session);
 
             // Track client sessions
-            if (!this.clientSessions.has(data.clientId)) {
-                this.clientSessions.set(data.clientId, []);
+            if (!this.clientSessions.has(data.client_id)) {
+                this.clientSessions.set(data.client_id, []);
             }
-            this.clientSessions.get(data.clientId)!.push(session.id);
+            this.clientSessions.get(data.client_id)!.push(session.id);
 
-            logger.info(`Session started: ${session.id} for ${data.officerEmail}`);
+            logger.info(`Session started: ${session.id} for ${data.officer_email}`);
             this.emit('sessionStarted', session);
 
             return session;
@@ -67,38 +67,38 @@ export class SessionManager extends EventEmitter {
             }
 
             // Update session
-            session.endTime = new Date();
+            session.end_time = new Date();
             session.status = 'ended';
             this.sessions.set(sessionId, session);
 
             // Create conversation record
             const conversation: Conversation = {
                 id: uuidv4(),
-                sessionId: session.id,
-                officerEmail: session.officerEmail,
-                appName: session.appName,
-                startTime: session.startTime,
-                endTime: session.endTime,
-                duration: Math.floor((session.endTime.getTime() - session.startTime.getTime()) / 1000),
+                session_id: session.id,
+                officer_email: session.officer_email,
+                app_name: session.app_name,
+                start_time: session.start_time,
+                end_time: session.end_time!,
+                duration: Math.floor((session.end_time!.getTime() - session.start_time.getTime()) / 1000),
                 language: session.language,
                 status: 'processing',
                 transcript: session.transcript,
-                audioUrl: session.audioUrl,
-                createdAt: new Date(),
-                updatedAt: new Date(),
+                audio_url: session.audio_url,
+                created_at: new Date(),
+                updated_at: new Date(),
             };
 
             this.conversations.set(conversation.id, conversation);
 
             // Remove from client sessions
-            const clientSessions = this.clientSessions.get(session.clientId);
+            const clientSessions = this.clientSessions.get(session.client_id);
             if (clientSessions) {
                 const index = clientSessions.indexOf(sessionId);
                 if (index > -1) {
                     clientSessions.splice(index, 1);
                 }
                 if (clientSessions.length === 0) {
-                    this.clientSessions.delete(session.clientId);
+                    this.clientSessions.delete(session.client_id);
                 }
             }
 
@@ -132,7 +132,7 @@ export class SessionManager extends EventEmitter {
      */
     getConversationBySessionId(sessionId: string): Conversation | null {
         for (const conversation of this.conversations.values()) {
-            if (conversation.sessionId === sessionId) {
+            if (conversation.session_id === sessionId) {
                 return conversation;
             }
         }
@@ -172,14 +172,14 @@ export class SessionManager extends EventEmitter {
      * Get sessions by officer email
      */
     getSessionsByOfficerEmail(officerEmail: string): Session[] {
-        return Array.from(this.sessions.values()).filter(session => session.officerEmail === officerEmail);
+        return Array.from(this.sessions.values()).filter(session => session.officer_email === officerEmail);
     }
 
     /**
      * Get conversations by officer email
      */
     getConversationsByOfficerEmail(officerEmail: string): Conversation[] {
-        return Array.from(this.conversations.values()).filter(conversation => conversation.officerEmail === officerEmail);
+        return Array.from(this.conversations.values()).filter(conversation => conversation.officer_email === officerEmail);
     }
 
     /**
@@ -209,7 +209,7 @@ export class SessionManager extends EventEmitter {
             return false;
         }
 
-        session.audioUrl = audioUrl;
+        session.audio_url = audioUrl;
         this.sessions.set(sessionId, session);
         
         logger.debug(`Updated audio URL for session: ${sessionId}`);
@@ -228,7 +228,7 @@ export class SessionManager extends EventEmitter {
         }
 
         conversation.status = status;
-        conversation.updatedAt = new Date();
+        conversation.updated_at = new Date();
         this.conversations.set(conversationId, conversation);
         
         logger.debug(`Updated conversation status: ${conversationId} -> ${status}`);
@@ -247,7 +247,7 @@ export class SessionManager extends EventEmitter {
         }
 
         Object.assign(conversation, results);
-        conversation.updatedAt = new Date();
+        conversation.updated_at = new Date();
         this.conversations.set(conversationId, conversation);
         
         logger.debug(`Updated conversation results: ${conversationId}`);
@@ -286,7 +286,7 @@ export class SessionManager extends EventEmitter {
 
         // Count by app
         sessions.forEach(session => {
-            stats.byApp[session.appName] = (stats.byApp[session.appName] || 0) + 1;
+            stats.byApp[session.app_name] = (stats.byApp[session.app_name] || 0) + 1;
         });
 
         return stats;
@@ -302,8 +302,8 @@ export class SessionManager extends EventEmitter {
         const expiredSessions: string[] = [];
         
         for (const [sessionId, session] of this.sessions.entries()) {
-            if (session.status === 'ended' && session.endTime) {
-                const timeSinceEnd = now.getTime() - session.endTime.getTime();
+            if (session.status === 'ended' && session.end_time) {
+                const timeSinceEnd = now.getTime() - session.end_time.getTime();
                 if (timeSinceEnd > expiredTime) {
                     expiredSessions.push(sessionId);
                 }

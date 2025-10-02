@@ -12,7 +12,9 @@ import { QueueService } from './services/QueueService';
 import { WorkerManager } from './workers/WorkerManager';
 import { SupabaseService } from './services/SupabaseService';
 import { WebhookService } from './services/WebhookService';
+import { SystemInitializer } from './services/SystemInitializer';
 import { AudioChunk } from './types';
+import path from 'path';
 
 // Load environment variables
 dotenv.config({ path: '../.env' });
@@ -28,6 +30,7 @@ class VoiceChatServer {
     private workerManager: WorkerManager;
     private supabaseService: SupabaseService;
     private webhookService: WebhookService;
+    private systemInitializer: SystemInitializer;
 
     constructor() {
         this.app = express();
@@ -43,9 +46,30 @@ class VoiceChatServer {
         this.sessionManager = new SessionManager();
         this.webrtcService = new WebRTCService();
         this.queueService = new QueueService();
-        this.workerManager = new WorkerManager();
+        this.workerManager = new WorkerManager(this.queueService);
         this.supabaseService = new SupabaseService();
         this.webhookService = new WebhookService(this.supabaseService);
+        
+        // Initialize system initializer
+        this.systemInitializer = new SystemInitializer({
+            supabase: {
+                url: process.env['SUPABASE_URL'] || '',
+                serviceKey: process.env['SUPABASE_SERVICE_ROLE_KEY'] || '',
+                projectId: process.env['SUPABASE_PROJECT_ID'] || ''
+            },
+            minio: {
+                endPoint: process.env['MINIO_ENDPOINT'] || 'localhost',
+                port: parseInt(process.env['MINIO_PORT'] || '9000'),
+                useSSL: process.env['MINIO_USE_SSL'] === 'true',
+                accessKey: process.env['MINIO_ACCESS_KEY'] || '',
+                secretKey: process.env['MINIO_SECRET_KEY'] || '',
+                region: process.env['MINIO_REGION'] || 'us-east-1'
+            },
+            paths: {
+                migrations: path.join(__dirname, '../../supabase/migrations'),
+                functions: path.join(__dirname, '../../supabase/functions')
+            }
+        });
 
         this.setupMiddleware();
         this.setupRoutes();
@@ -81,14 +105,44 @@ class VoiceChatServer {
             });
         });
 
+        // System status endpoint
+        this.app.get('/api/system/status', async (req, res) => {
+            try {
+                const status = await this.systemInitializer.getSystemStatus();
+                res.json({
+                    ...status,
+                    timestamp: new Date().toISOString(),
+                    uptime: process.uptime()
+                });
+            } catch (error) {
+                logger.error('Error fetching system status:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
+        // System initialization endpoint
+        this.app.post('/api/system/initialize', async (req, res) => {
+            try {
+                const result = await this.systemInitializer.initialize();
+                res.json({
+                    success: result,
+                    message: result ? 'System initialized successfully' : 'System initialization failed',
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                logger.error('Error initializing system:', error);
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        });
+
         // API routes
         this.app.get('/api/sessions', (req, res) => {
             try {
                 const sessions = this.sessionManager.getAllSessions();
-                res.json({ sessions });
+                return res.json({ sessions });
             } catch (error) {
                 logger.error('Error fetching sessions:', error);
-                res.status(500).json({ error: 'Internal server error' });
+                return res.status(500).json({ error: 'Internal server error' });
             }
         });
 
@@ -99,10 +153,10 @@ class VoiceChatServer {
                 if (!session) {
                     return res.status(404).json({ error: 'Session not found' });
                 }
-                res.json({ session });
+                return res.json({ session });
             } catch (error) {
                 logger.error('Error fetching session:', error);
-                res.status(500).json({ error: 'Internal server error' });
+                return res.status(500).json({ error: 'Internal server error' });
             }
         });
 
@@ -113,10 +167,10 @@ class VoiceChatServer {
                 if (!success) {
                     return res.status(404).json({ error: 'Session not found' });
                 }
-                res.json({ message: 'Session ended successfully' });
+                return res.json({ message: 'Session ended successfully' });
             } catch (error) {
                 logger.error('Error ending session:', error);
-                res.status(500).json({ error: 'Internal server error' });
+                return res.status(500).json({ error: 'Internal server error' });
             }
         });
 
@@ -179,10 +233,10 @@ class VoiceChatServer {
                     }
 
                     const session = await this.sessionManager.startSession({
-                        officerEmail,
-                        appName,
+                        officer_email: officerEmail,
+                        app_name: appName,
                         language,
-                        clientId: socket.id
+                        client_id: socket.id
                     });
 
                     // Create Speechmatics service for this session
@@ -266,17 +320,19 @@ class VoiceChatServer {
                     // Create jobs for post-processing
                     if (conversation) {
                         // Add audio processing job
-                        await this.queueService.addJob(QueueService.AUDIO_QUEUE, {
-                            sessionId: conversation.session_id,
-                            conversationId: conversation.id,
-                            audioUrl: conversation.audio_url,
-                            metadata: {
-                                officerEmail: conversation.officer_email,
-                                appName: conversation.app_name,
-                                language: conversation.language,
-                                duration: conversation.duration
-                            }
-                        });
+                        if (conversation.audio_url) {
+                            await this.queueService.addJob(QueueService.AUDIO_QUEUE, {
+                                sessionId: conversation.session_id,
+                                conversationId: conversation.id,
+                                audioUrl: conversation.audio_url,
+                                metadata: {
+                                    officerEmail: conversation.officer_email,
+                                    appName: conversation.app_name,
+                                    language: conversation.language,
+                                    duration: conversation.duration
+                                }
+                            });
+                        }
 
                         // Add summary generation job (depends on audio processing)
                         await this.queueService.addJob(QueueService.SUMMARY_QUEUE, {
@@ -442,6 +498,22 @@ class VoiceChatServer {
      */
     public async start(): Promise<void> {
         try {
+            // Initialize system (database, MinIO, edge functions)
+            logger.info('🚀 Starting system initialization...');
+            const systemInitialized = await this.systemInitializer.initialize();
+            
+            if (!systemInitialized) {
+                logger.error('❌ System initialization failed, but continuing with startup...');
+            } else {
+                logger.info('✅ System initialization completed successfully');
+            }
+
+            // Perform health check
+            const healthCheck = await this.systemInitializer.performHealthCheck();
+            if (!healthCheck) {
+                logger.warn('⚠️ Some system components are unhealthy, but continuing with startup...');
+            }
+
             // Initialize queue service
             await this.queueService.initialize();
             logger.info('Queue service initialized');
@@ -451,7 +523,7 @@ class VoiceChatServer {
                 await this.workerManager.initialize();
                 logger.info('Worker manager initialized');
             } catch (error) {
-                logger.warn('Worker manager initialization failed, continuing without workers:', error.message);
+                logger.warn('Worker manager initialization failed, continuing without workers:', (error as Error).message);
             }
 
             const port = process.env['APP_PORT'] || 3001;

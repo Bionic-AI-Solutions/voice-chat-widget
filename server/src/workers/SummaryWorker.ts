@@ -6,7 +6,7 @@ import OpenAI from 'openai';
 
 export class SummaryWorker extends BaseWorker {
     private supabase: any;
-    private openai: OpenAI;
+    private openai!: OpenAI;
 
     constructor(queueService: any) {
         super('summary-generation', 'summary-worker', queueService);
@@ -48,6 +48,9 @@ export class SummaryWorker extends BaseWorker {
             logger.info(`Processing summary job for session: ${sessionId}`);
 
             // Generate AI summary
+            if (!transcript) {
+                throw new Error('Transcript is required for summary generation');
+            }
             const summary = await this.generateSummary(transcript, metadata);
 
             // Update conversation record
@@ -105,7 +108,7 @@ export class SummaryWorker extends BaseWorker {
             return summary;
         } catch (error) {
             logger.error('Failed to generate AI summary:', error);
-            throw new Error(`Summary generation failed: ${error.message}`);
+            throw new Error(`Summary generation failed: ${(error as Error).message}`);
         }
     }
 
@@ -193,7 +196,7 @@ export class SummaryWorker extends BaseWorker {
                     // This is a list item
                     const item = trimmedLine.replace(/^[-•]\s*/, '').replace(/^\d+\.\s*/, '');
                     if (item.trim()) {
-                        summary[currentSection].push(item);
+                        (summary as any)[currentSection].push(item);
                     }
                 } else if (trimmedLine && currentSection === 'overview') {
                     summary.overview += (summary.overview ? ' ' : '') + trimmedLine;
@@ -239,13 +242,13 @@ export class SummaryWorker extends BaseWorker {
                 .eq('session_id', sessionId);
 
             if (error) {
-                throw new Error(`Database update failed: ${error.message}`);
+                throw new Error(`Database update failed: ${(error as Error).message}`);
             }
 
             logger.info(`Conversation record updated with summary for session: ${sessionId}`);
         } catch (error) {
             logger.error('Failed to update conversation record with summary:', error);
-            throw new Error(`Database update failed: ${error.message}`);
+            throw new Error(`Database update failed: ${(error as Error).message}`);
         }
     }
 
@@ -285,7 +288,7 @@ export class SummaryWorker extends BaseWorker {
                 .single();
 
             if (error) {
-                logger.warn(`Failed to get conversation context: ${error.message}`);
+                logger.warn(`Failed to get conversation context: ${(error as Error).message}`);
                 return null;
             }
 

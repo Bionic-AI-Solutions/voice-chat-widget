@@ -40,9 +40,9 @@ export interface QueueJob extends Bull.Job<JobData> {
 }
 
 export class QueueService extends EventEmitter {
-    private redis: Redis;
+    private redis!: Redis;
     private queues: Map<string, Bull.Queue> = new Map();
-    private workers: Map<string, Bull.Worker> = new Map();
+    private workers: Map<string, any> = new Map(); // Bull doesn't export Worker type
     private config: QueueConfig;
     private isInitialized = false;
 
@@ -110,16 +110,23 @@ export class QueueService extends EventEmitter {
                 this.redis = new Redis(this.config.redis);
             } else {
                 // Use individual components
-                this.redis = new Redis({
+                const redisConfig: any = {
                     host: this.config.redis.host,
                     port: this.config.redis.port,
-                    password: this.config.redis.password,
-                    db: this.config.redis.db,
                     maxRetriesPerRequest: this.config.redis.maxRetriesPerRequest,
-                    retryDelayOnFailover: this.config.redis.retryDelayOnFailover,
                     enableReadyCheck: this.config.redis.enableReadyCheck,
                     lazyConnect: this.config.redis.lazyConnect,
-                });
+                };
+                
+                if (this.config.redis.password) {
+                    redisConfig.password = this.config.redis.password;
+                }
+                
+                if (this.config.redis.db) {
+                    redisConfig.db = this.config.redis.db;
+                }
+                
+                this.redis = new Redis(redisConfig);
             }
 
             // Set up Redis event handlers
@@ -242,7 +249,7 @@ export class QueueService extends EventEmitter {
         return this.addJob(QueueService.AUDIO_QUEUE, {
             sessionId,
             audioUrl,
-            metadata,
+            metadata: metadata || {},
         });
     }
 
@@ -253,7 +260,7 @@ export class QueueService extends EventEmitter {
         return this.addJob(QueueService.SUMMARY_QUEUE, {
             sessionId,
             transcript,
-            metadata,
+            metadata: metadata || {},
         });
     }
 
@@ -264,7 +271,7 @@ export class QueueService extends EventEmitter {
         return this.addJob(QueueService.PDF_QUEUE, {
             sessionId,
             conversationId,
-            metadata,
+            metadata: metadata || {},
         });
     }
 
@@ -275,7 +282,7 @@ export class QueueService extends EventEmitter {
         return this.addJob(QueueService.EMAIL_QUEUE, {
             sessionId,
             conversationId,
-            metadata,
+            metadata: metadata || {},
         });
     }
 
@@ -450,5 +457,12 @@ export class QueueService extends EventEmitter {
             logger.error('Error closing QueueService:', error);
             throw error;
         }
+    }
+
+    /**
+     * Shutdown the queue service (alias for close)
+     */
+    async shutdown(): Promise<void> {
+        return this.close();
     }
 }

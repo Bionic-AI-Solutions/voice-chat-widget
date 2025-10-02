@@ -119,8 +119,8 @@ export class WebhookService {
         logger.info('New conversation created via webhook:', record.id);
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('conversation-created', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('conversation-created', {
                 conversation: record,
                 timestamp: new Date().toISOString()
             });
@@ -168,8 +168,8 @@ export class WebhookService {
         }
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('conversation-updated', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('conversation-updated', {
                 conversation: record,
                 changes: this.getChanges(oldRecord, record),
                 timestamp: new Date().toISOString()
@@ -184,8 +184,8 @@ export class WebhookService {
         logger.info('Conversation deleted via webhook:', record.id);
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('conversation-deleted', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('conversation-deleted', {
                 conversationId: record.id,
                 timestamp: new Date().toISOString()
             });
@@ -203,8 +203,8 @@ export class WebhookService {
         logger.info('New task created via webhook:', record.id);
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('task-created', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('task-created', {
                 task: record,
                 timestamp: new Date().toISOString()
             });
@@ -238,8 +238,8 @@ export class WebhookService {
         }
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('task-updated', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('task-updated', {
                 task: record,
                 changes: this.getChanges(oldRecord, record),
                 timestamp: new Date().toISOString()
@@ -254,8 +254,8 @@ export class WebhookService {
         logger.info('Task deleted via webhook:', record.id);
 
         // Emit to connected clients
-        if (global.io) {
-            global.io.emit('task-deleted', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('task-deleted', {
                 taskId: record.id,
                 timestamp: new Date().toISOString()
             });
@@ -359,8 +359,8 @@ export class WebhookService {
         logger.error('Task failed:', record.id, record.type, record.error);
 
         // Emit failure notification
-        if (global.io) {
-            global.io.emit('task-failed', {
+        if ((globalThis as any).io) {
+            (globalThis as any).io.emit('task-failed', {
                 task: record,
                 timestamp: new Date().toISOString()
             });

@@ -25,7 +25,7 @@ export interface WorkerStatus {
 }
 
 export abstract class BaseWorker extends EventEmitter {
-    protected worker: Bull.Worker | null = null;
+    protected worker: any = null; // Bull doesn't export Worker type
     protected config: WorkerConfig;
     protected isRunning = false;
     protected isHealthy = true;
@@ -66,19 +66,20 @@ export abstract class BaseWorker extends EventEmitter {
                 return;
             }
 
-            this.worker = new Bull.Worker(
-                this.queueName,
-                async (job: Bull.Job<JobData>) => {
-                    return this.processJob(job as QueueJob);
+            // Create worker using Bull's queue processing
+            const Bull = require('bull');
+            this.worker = new Bull(this.queueName, {
+                concurrency: this.config.concurrency,
+                limiter: {
+                    max: this.config.maxJobs,
+                    duration: 60000, // 1 minute
                 },
-                {
-                    concurrency: this.config.concurrency,
-                    limiter: {
-                        max: this.config.maxJobs,
-                        duration: 60000, // 1 minute
-                    },
-                }
-            );
+            });
+
+            // Set up job processing
+            this.worker.process(async (job: Bull.Job<JobData>) => {
+                return this.processJob(job as QueueJob);
+            });
 
             // Set up worker event handlers
             this.setupEventHandlers();
@@ -154,31 +155,31 @@ export abstract class BaseWorker extends EventEmitter {
             this.emit('ready', { workerName: this.workerName });
         });
 
-        this.worker.on('error', (error) => {
+        this.worker.on('error', (error: any) => {
             logger.error(`Worker ${this.workerName} error:`, error);
             this.isHealthy = false;
             this.emit('error', { workerName: this.workerName, error });
         });
 
-        this.worker.on('failed', (job, error) => {
+        this.worker.on('failed', (job: any, error: any) => {
             this.failedJobs++;
             logger.error(`Job ${job.id} failed in worker ${this.workerName}:`, error);
             this.emit('jobFailed', { workerName: this.workerName, job, error });
         });
 
-        this.worker.on('completed', (job, result) => {
+        this.worker.on('completed', (job: any, result: any) => {
             this.processedJobs++;
             logger.info(`Job ${job.id} completed in worker ${this.workerName}`);
             this.emit('jobCompleted', { workerName: this.workerName, job, result });
         });
 
-        this.worker.on('active', (job) => {
+        this.worker.on('active', (job: any) => {
             this.activeJobs++;
             logger.debug(`Job ${job.id} active in worker ${this.workerName}`);
             this.emit('jobActive', { workerName: this.workerName, job });
         });
 
-        this.worker.on('stalled', (job) => {
+        this.worker.on('stalled', (job: any) => {
             logger.warn(`Job ${job.id} stalled in worker ${this.workerName}`);
             this.emit('jobStalled', { workerName: this.workerName, job });
         });

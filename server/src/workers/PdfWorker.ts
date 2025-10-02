@@ -39,6 +39,9 @@ export class PdfWorker extends BaseWorker {
             logger.info(`Processing PDF job for session: ${sessionId}`);
 
             // Get conversation data
+            if (!conversationId) {
+                throw new Error('Conversation ID is required for PDF generation');
+            }
             const conversation = await this.getConversationData(conversationId);
 
             if (!conversation) {
@@ -49,6 +52,9 @@ export class PdfWorker extends BaseWorker {
             const pdfBuffer = await this.generatePdf(conversation, metadata);
 
             // Upload PDF to storage
+            if (!sessionId) {
+                throw new Error('Session ID is required for PDF upload');
+            }
             const pdfUrl = await this.uploadPdfToStorage(sessionId, pdfBuffer, metadata);
 
             // Update conversation record
@@ -81,7 +87,7 @@ export class PdfWorker extends BaseWorker {
                 .single();
 
             if (error) {
-                throw new Error(`Failed to get conversation data: ${error.message}`);
+                throw new Error(`Failed to get conversation data: ${(error as Error).message}`);
             }
 
             return data;
@@ -350,7 +356,7 @@ export class PdfWorker extends BaseWorker {
                 });
 
             if (error) {
-                throw new Error(`Storage upload failed: ${error.message}`);
+                throw new Error(`Storage upload failed: ${(error as Error).message}`);
             }
 
             // Get public URL
@@ -364,7 +370,7 @@ export class PdfWorker extends BaseWorker {
             return publicUrl;
         } catch (error) {
             logger.error('Failed to upload PDF to storage:', error);
-            throw new Error(`Storage upload failed: ${error.message}`);
+            throw new Error(`Storage upload failed: ${(error as Error).message}`);
         }
     }
 
@@ -385,13 +391,13 @@ export class PdfWorker extends BaseWorker {
                 .eq('id', conversationId);
 
             if (error) {
-                throw new Error(`Database update failed: ${error.message}`);
+                throw new Error(`Database update failed: ${(error as Error).message}`);
             }
 
             logger.info(`Conversation record updated with PDF URL for conversation: ${conversationId}`);
         } catch (error) {
             logger.error('Failed to update conversation record with PDF URL:', error);
-            throw new Error(`Database update failed: ${error.message}`);
+            throw new Error(`Database update failed: ${(error as Error).message}`);
         }
     }
 

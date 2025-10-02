@@ -85,8 +85,8 @@ export class SupabaseService {
             const { eventType, new: newRecord, old: oldRecord } = payload;
             
             // Emit to connected clients via Socket.IO
-            if (global.io) {
-                global.io.emit('conversation-update', {
+            if ((globalThis as any).io) {
+                (globalThis as any).io.emit('conversation-update', {
                     eventType,
                     conversation: newRecord || oldRecord,
                     timestamp: new Date().toISOString()
@@ -118,8 +118,8 @@ export class SupabaseService {
             const { eventType, new: newRecord, old: oldRecord } = payload;
             
             // Emit to connected clients via Socket.IO
-            if (global.io) {
-                global.io.emit('task-update', {
+            if ((globalThis as any).io) {
+                (globalThis as any).io.emit('task-update', {
                     eventType,
                     task: newRecord || oldRecord,
                     timestamp: new Date().toISOString()

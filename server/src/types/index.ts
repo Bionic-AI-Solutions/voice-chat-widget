@@ -9,42 +9,42 @@ export interface AudioChunk {
 
 export interface Session {
     id: string;
-    officerEmail: string;
-    appName: string;
+    officer_email: string;
+    app_name: string;
     language: string;
-    clientId: string;
-    startTime: Date;
-    endTime?: Date;
+    client_id: string;
+    start_time: Date;
+    end_time?: Date;
     status: 'active' | 'ended' | 'processing';
     transcript?: string;
-    audioUrl?: string;
-    conversationId?: string;
+    audio_url?: string;
+    conversation_id?: string;
 }
 
 export interface Conversation {
     id: string;
-    sessionId: string;
-    officerEmail: string;
-    appName: string;
-    startTime: Date;
-    endTime: Date;
+    session_id: string;
+    officer_email: string;
+    app_name: string;
+    start_time: Date;
+    end_time: Date;
     duration: number;
     language: string;
     status: 'processing' | 'completed' | 'failed';
-    transcript?: string;
-    summary?: string;
-    audioUrl?: string;
-    pdfUrl?: string;
-    emailSent?: boolean;
-    createdAt: Date;
-    updatedAt: Date;
+    transcript?: string | undefined;
+    summary?: string | undefined;
+    audio_url?: string | undefined;
+    pdf_url?: string | undefined;
+    email_sent?: boolean | undefined;
+    created_at: Date;
+    updated_at: Date;
 }
 
 export interface SessionStartData {
-    officerEmail: string;
-    appName: string;
+    officer_email: string;
+    app_name: string;
     language?: string;
-    clientId: string;
+    client_id: string;
 }
 
 export interface SpeechmaticsConfig {
@@ -71,9 +71,9 @@ export interface WebRTCSignal {
 }
 
 export interface QueueJobData {
-    sessionId: string;
-    conversationId?: string;
-    audioUrl?: string;
+    sessionId: string; // Keep camelCase for internal use
+    conversationId?: string; // Keep camelCase for internal use
+    audioUrl?: string; // Keep camelCase for internal use
     transcript?: string;
     metadata?: Record<string, any>;
     priority?: number;

@@ -39,6 +39,9 @@ export class AudioWorker extends BaseWorker {
             logger.info(`Processing audio job for session: ${sessionId}`);
 
             // Download audio from Speechmatics
+            if (!audioUrl) {
+                throw new Error('Audio URL is required for processing');
+            }
             const audioBuffer = await this.downloadAudio(audioUrl);
 
             // Upload to Supabase Storage
@@ -84,7 +87,7 @@ export class AudioWorker extends BaseWorker {
             return audioBuffer;
         } catch (error) {
             logger.error('Failed to download audio:', error);
-            throw new Error(`Audio download failed: ${error.message}`);
+            throw new Error(`Audio download failed: ${(error as Error).message}`);
         }
     }
 
@@ -107,7 +110,7 @@ export class AudioWorker extends BaseWorker {
                 });
 
             if (error) {
-                throw new Error(`Storage upload failed: ${error.message}`);
+                throw new Error(`Storage upload failed: ${(error as Error).message}`);
             }
 
             // Get public URL
@@ -121,7 +124,7 @@ export class AudioWorker extends BaseWorker {
             return publicUrl;
         } catch (error) {
             logger.error('Failed to upload audio to storage:', error);
-            throw new Error(`Storage upload failed: ${error.message}`);
+            throw new Error(`Storage upload failed: ${(error as Error).message}`);
         }
     }
 
@@ -143,13 +146,13 @@ export class AudioWorker extends BaseWorker {
                 .eq('session_id', sessionId);
 
             if (error) {
-                throw new Error(`Database update failed: ${error.message}`);
+                throw new Error(`Database update failed: ${(error as Error).message}`);
             }
 
             logger.info(`Conversation record updated for session: ${sessionId}`);
         } catch (error) {
             logger.error('Failed to update conversation record:', error);
-            throw new Error(`Database update failed: ${error.message}`);
+            throw new Error(`Database update failed: ${(error as Error).message}`);
         }
     }
 

@@ -2,6 +2,60 @@ import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 import { WebRTCSignal } from '../types';
 
+// WebRTC type definitions for Node.js environment
+interface RTCIceServer {
+    urls: string | string[];
+    username?: string;
+    credential?: string;
+}
+
+interface RTCSessionDescriptionInit {
+    type: 'offer' | 'answer' | 'pranswer' | 'rollback';
+    sdp: string;
+}
+
+interface RTCIceCandidateInit {
+    candidate: string;
+    sdpMLineIndex?: number | null;
+    sdpMid?: string | null;
+    usernameFragment?: string | null;
+}
+
+// Mock WebRTC interfaces for Node.js environment
+interface RTCPeerConnection {
+    createOffer(): Promise<RTCSessionDescriptionInit>;
+    createAnswer(): Promise<RTCSessionDescriptionInit>;
+    setLocalDescription(description: RTCSessionDescriptionInit): Promise<void>;
+    setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>;
+    addIceCandidate(candidate: RTCIceCandidateInit): Promise<void>;
+    createDataChannel(label: string): RTCDataChannel;
+    close(): void;
+    onicecandidate: ((event: any) => void) | null;
+    onconnectionstatechange: ((event: any) => void) | null;
+    ondatachannel: ((event: any) => void) | null;
+    oniceconnectionstatechange: ((event: any) => void) | null;
+    ontrack: ((event: any) => void) | null;
+    iceConnectionState: string;
+    connectionState: string;
+}
+
+interface RTCDataChannel {
+    send(data: string | ArrayBuffer): void;
+    close(): void;
+    onopen: ((event: any) => void) | null;
+    onmessage: ((event: any) => void) | null;
+    onerror: ((event: any) => void) | null;
+    onclose: ((event: any) => void) | null;
+    readyState: string;
+}
+
+// Mock WebRTC constructor for Node.js environment
+declare global {
+    var RTCPeerConnection: {
+        new (config?: any): RTCPeerConnection;
+    };
+}
+
 export class WebRTCService extends EventEmitter {
     private connections: Map<string, RTCPeerConnection> = new Map();
     private dataChannels: Map<string, RTCDataChannel> = new Map();
@@ -47,20 +101,17 @@ export class WebRTCService extends EventEmitter {
      */
     async createConnection(sessionId: string): Promise<RTCPeerConnection> {
         try {
-            // Create peer connection
-            const peerConnection = new RTCPeerConnection({
+            // Create peer connection (mock for Node.js environment)
+            const peerConnection = new (globalThis as any).RTCPeerConnection({
                 iceServers: this.iceServers,
                 iceCandidatePoolSize: 10,
-            });
+            }) as RTCPeerConnection;
 
             // Set up event handlers
             this.setupConnectionHandlers(peerConnection, sessionId);
 
             // Create data channel for audio streaming
-            const dataChannel = peerConnection.createDataChannel('audio', {
-                ordered: true,
-                maxRetransmits: 3,
-            });
+            const dataChannel = peerConnection.createDataChannel('audio');
 
             this.setupDataChannelHandlers(dataChannel, sessionId);
 
@@ -117,10 +168,7 @@ export class WebRTCService extends EventEmitter {
                 throw new Error(`No WebRTC connection found for session: ${sessionId}`);
             }
 
-            const offer = await peerConnection.createOffer({
-                offerToReceiveAudio: true,
-                offerToReceiveVideo: false,
-            });
+            const offer = await peerConnection.createOffer();
 
             await peerConnection.setLocalDescription(offer);
 

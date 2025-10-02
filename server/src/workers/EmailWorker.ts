@@ -7,7 +7,7 @@ import axios from 'axios';
 
 export class EmailWorker extends BaseWorker {
     private supabase: any;
-    private transporter: nodemailer.Transporter;
+    private transporter!: nodemailer.Transporter;
 
     constructor(queueService: any) {
         super('email-delivery', 'email-worker', queueService);
@@ -51,7 +51,7 @@ export class EmailWorker extends BaseWorker {
                 throw new Error('SMTP credentials missing');
             }
 
-            this.transporter = nodemailer.createTransporter(smtpConfig);
+            this.transporter = nodemailer.createTransport(smtpConfig);
 
             logger.info('Email transporter initialized successfully');
         } catch (error) {
@@ -70,6 +70,9 @@ export class EmailWorker extends BaseWorker {
             logger.info(`Processing email job for session: ${sessionId}`);
 
             // Get conversation data
+            if (!conversationId) {
+                throw new Error('Conversation ID is required for email delivery');
+            }
             const conversation = await this.getConversationData(conversationId);
 
             if (!conversation) {
@@ -80,6 +83,9 @@ export class EmailWorker extends BaseWorker {
             const emailContent = await this.prepareEmailContent(conversation, metadata);
 
             // Send email
+            if (!sessionId) {
+                throw new Error('Session ID is required for email delivery');
+            }
             const emailResult = await this.sendEmail(conversation, emailContent, metadata);
 
             // Update conversation record
@@ -111,7 +117,7 @@ export class EmailWorker extends BaseWorker {
                 .single();
 
             if (error) {
-                throw new Error(`Failed to get conversation data: ${error.message}`);
+                throw new Error(`Failed to get conversation data: ${(error as Error).message}`);
             }
 
             return data;
@@ -437,7 +443,7 @@ Report ID: ${conversation.id}
             };
         } catch (error) {
             logger.error('Failed to send email:', error);
-            throw new Error(`Email delivery failed: ${error.message}`);
+            throw new Error(`Email delivery failed: ${(error as Error).message}`);
         }
     }
 
@@ -459,13 +465,13 @@ Report ID: ${conversation.id}
                 .eq('id', conversationId);
 
             if (error) {
-                throw new Error(`Database update failed: ${error.message}`);
+                throw new Error(`Database update failed: ${(error as Error).message}`);
             }
 
             logger.info(`Conversation record updated with email status for conversation: ${conversationId}`);
         } catch (error) {
             logger.error('Failed to update conversation record with email status:', error);
-            throw new Error(`Database update failed: ${error.message}`);
+            throw new Error(`Database update failed: ${(error as Error).message}`);
         }
     }
 

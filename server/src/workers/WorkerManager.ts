@@ -383,4 +383,11 @@ export class WorkerManager extends EventEmitter {
             throw error;
         }
     }
+
+    /**
+     * Shutdown the worker manager (alias for close)
+     */
+    async shutdown(): Promise<void> {
+        return this.close();
+    }
 }
